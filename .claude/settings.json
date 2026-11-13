@@ -1,0 +1,10 @@
+{
+  "plugins": [
+    "elixir@claude-code-elixir",
+    "superpowers@claude-plugins-official",
+    "code-review@claude-plugins-official",
+    "claude-mem@thedotmack",
+    "ui-ux-pro-max@ui-ux-pro-max-skill",
+    "elixir-scaffold"
+  ]
+}
