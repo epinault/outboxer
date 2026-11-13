@@ -33,6 +33,9 @@ postgres? =
       PgRepo.query!("CREATE SCHEMA public")
       Ecto.Migrator.up(PgRepo, 1, Migration, log: false)
       Ecto.Migrator.up(PgRepo, 2, Outboxer.Test.ObanMigration, log: false)
+      PgRepo.query!("DROP SCHEMA IF EXISTS private CASCADE")
+      PgRepo.query!("CREATE SCHEMA private")
+      Ecto.Migrator.up(PgRepo, 3, Outboxer.Test.PrefixedMigration, log: false)
       true
     else
       _unavailable -> false

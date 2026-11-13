@@ -23,3 +23,11 @@ defmodule Outboxer.Test.ObanMigration do
   def up, do: Oban.Migration.up()
   def down, do: Oban.Migration.down(version: 1)
 end
+
+defmodule Outboxer.Test.PrefixedMigration do
+  @moduledoc false
+  use Ecto.Migration
+
+  def up, do: Outboxer.Migration.up(prefix: "private", table: "custom_outbox")
+  def down, do: Outboxer.Migration.down(prefix: "private", table: "custom_outbox")
+end

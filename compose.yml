@@ -16,3 +16,16 @@ services:
       interval: 2s
       timeout: 2s
       retries: 20
+
+  # Single-node Kafka (KRaft, no ZooKeeper). The image's defaults advertise
+  # localhost:9092, which is what the integration tests connect to.
+  kafka:
+    image: apache/kafka:4.1.0
+    ports:
+      - "9092:9092"
+
+  # MiniStack: a free, open-source LocalStack alternative. Used for SQS.
+  ministack:
+    image: ministackorg/ministack:latest
+    ports:
+      - "4566:4566"

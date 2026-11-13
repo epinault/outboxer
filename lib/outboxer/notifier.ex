@@ -32,7 +32,10 @@ if Code.ensure_loaded?(Postgrex) do
 
       {:ok, listener} = Postgrex.Notifications.start_link(opts)
       # With auto_reconnect the subscription is restored after a reconnect.
-      {:eventually, _ref} = Postgrex.Notifications.listen(listener, Postgres.channel())
+      # `{:ok, ref}` when connected, `{:eventually, ref}` when the connection is
+      # still being established; either way the subscription is in place.
+      {status, _ref} = Postgrex.Notifications.listen(listener, Postgres.channel())
+      true = status in [:ok, :eventually]
 
       {:ok, %{name: name, prefix: "#{name}|"}}
     end
