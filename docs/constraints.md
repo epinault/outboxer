@@ -14,6 +14,14 @@ Things the code relies on that are not obvious from reading one file.
   must see the deletes the previous owner committed; under REPEATABLE READ it could redeliver.
 - **SQLite delivers outside a transaction** because holding SQLite's single write lock during
   broker I/O would stall the host application. Do not "unify" the two adapters.
+- **The fetch query matches `partition` as a range (`>= p AND <= p`) and orders by
+  `(partition, id)`. Do not simplify it to `partition = p ORDER BY id`.** With the equality,
+  Postgres may scan the primary key instead of the partial pending index. That is equally fast
+  while every row is pending, but with kept or dead rows at the low ids it filters them on every
+  poll and holds that plan until the next `ANALYZE`: a 200,000-row drain with `{:keep, _}` fell
+  from 27,000 to 3,000 msg/s. The range form leaves the pending index as the only one that
+  returns rows in order. A test in `postgres_test.exs` checks the plan; `mix bench` shows the
+  effect.
 - **Blocked groups are excluded in SQL**, by a subquery over rows with `attempts > 0` and a future
   `scheduled_at`. `scheduled_at` is only ever in the future for failed messages; there is no
   delayed delivery, and adding it would make every delayed message block its group.

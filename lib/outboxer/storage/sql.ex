@@ -64,6 +64,14 @@ defmodule Outboxer.Storage.SQL do
   end
 
   def fetch(%Config{} = conf, outbox, partition, limit, now) do
+    conf
+    |> fetch_query(outbox, partition, limit, now)
+    |> conf.repo.all(opts(conf))
+    |> Enum.map(&Record.to_envelope(&1, outbox))
+  end
+
+  @doc "The query behind `fetch/5`. Public so that the benchmark can EXPLAIN it."
+  def fetch_query(%Config{} = conf, outbox, partition, limit, now) do
     name = Atom.to_string(outbox)
 
     # Groups whose head failed and is waiting for its retry. Nothing behind
@@ -75,18 +83,20 @@ defmodule Outboxer.Storage.SQL do
         select: b.group_key
       )
 
-    query =
-      from(m in source(conf, outbox),
-        where: m.outbox == ^name and m.partition == ^partition and m.status == "pending",
-        where: m.scheduled_at <= ^now,
-        where: is_nil(m.group_key) or m.group_key not in subquery(blocked),
-        order_by: [asc: m.id],
-        limit: ^limit
-      )
-
-    query
-    |> conf.repo.all(opts(conf))
-    |> Enum.map(&Record.to_envelope(&1, outbox))
+    # The partition is matched as a range and repeated in the ORDER BY on
+    # purpose. With `partition = $1 ORDER BY id`, Postgres may walk the primary
+    # key instead of the partial pending index: equally good while every row is
+    # pending, but it then has to step over every delivered or dead row, and it
+    # keeps that plan until the table is next analyzed. Written this way only
+    # the pending index can return rows in order, whatever the statistics say.
+    from(m in source(conf, outbox),
+      where: m.outbox == ^name and m.status == "pending",
+      where: m.partition >= ^partition and m.partition <= ^partition,
+      where: m.scheduled_at <= ^now,
+      where: is_nil(m.group_key) or m.group_key not in subquery(blocked),
+      order_by: [asc: m.partition, asc: m.id],
+      limit: ^limit
+    )
   end
 
   def ack(_conf, _outbox, [], _retention, _now), do: :ok

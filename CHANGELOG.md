@@ -16,3 +16,8 @@ Initial release.
 - One table per outbox: the `table` outbox option, for layouts such as `order_outbox` and
   `invoice_outbox`. Outboxes without it share the instance table.
 - `Outboxer.discard/3` takes the outbox, since ids are unique per table.
+- `mix bench`: a benchmark against real Postgres or SQLite (publishing, relaying, deep backlogs,
+  blocked groups, churn, pruning), with the results in the operations guide.
+- Postgres: the fetch query always reads the partial pending index. Before, with
+  `retention: {:keep, _}` and stale table statistics, the planner could walk the primary key and
+  relay throughput fell by up to ten times until the next `ANALYZE`.

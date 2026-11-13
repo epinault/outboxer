@@ -15,5 +15,6 @@ Known gaps and ideas, with why they are not done.
 | Pruning dead messages after N days | Dead messages are never removed automatically, on purpose; an opt-in setting was offered, not requested |
 | Per-outbox `prune_interval` | Instance-level today |
 | Cross-node config check | A publisher and a relay with different `partitions` or `table` silently strand rows. A stored config fingerprint could detect it |
+| Cheaper polls behind a deep blocked group | A poll steps over every row queued behind a failed head (15 ms at 100,000 rows, see `mix bench`). An index-only pre-selection of ids, or a per-group "blocked" marker, could avoid it. Pathological case, documented in the operations guide |
 | GitHub remote, first Hex release | Waiting for the owner's go-ahead |
 | elixir-scaffold GitHub path | The scaffold skill is GitLab-only; this repo's GitHub Actions file was written by hand |
