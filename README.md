@@ -217,7 +217,7 @@ mix bench                    # Postgres
 BENCH_REPO=sqlite mix bench  # SQLite
 ```
 
-The benchmark is [`bench/outbox_bench.exs`](bench/outbox_bench.exs). The full results, including
+The benchmark is [`bench/outbox_bench.exs`](https://github.com/epinault/outboxer/blob/main/bench/outbox_bench.exs). The full results, including
 the slow spots, are in [Operations](guides/operations.md#performance).
 
 ## Development
