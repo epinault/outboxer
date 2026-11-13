@@ -95,6 +95,7 @@ defmodule Outboxer.MixProject do
       extras: [
         "README.md",
         "guides/overview.md",
+        "guides/choosing-a-setup.md",
         "guides/ordering-and-groups.md",
         "guides/storage.md",
         "guides/relay-kafka.md",

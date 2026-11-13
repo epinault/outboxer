@@ -176,6 +176,8 @@ one time in four, so you can see ordering and retries.
 The guides go into each of these:
 
 - [Overview](guides/overview.md): the pattern, the guarantees and the trade-offs
+- [Choosing a setup](guides/choosing-a-setup.md): outboxes, tables, partitions, notify and where
+  the relay runs
 - [Ordering and groups](guides/ordering-and-groups.md)
 - [Storage: Postgres, SQLite, and why not Redis](guides/storage.md)
 - Relays: [Kafka](guides/relay-kafka.md), [SQS](guides/relay-sqs.md), [Oban](guides/relay-oban.md),
