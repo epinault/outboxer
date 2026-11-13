@@ -38,7 +38,17 @@ BENCH_SCALE=5 mix bench      # five times the rows
 BENCH_PLANS=1 mix bench      # also print the Postgres query plans
 ```
 
-Measured on a laptop, Postgres 17 in Docker, 200-byte payloads:
+The published numbers come from this setup, with 200-byte payloads:
+
+| | |
+| --- | --- |
+| Machine | MacBook Pro, Apple M3 Max (14 cores), 96 GB RAM |
+| OS | macOS 26.6 |
+| Database | PostgreSQL 17.11 in Docker 27.4 (Linux VM limited to 2 CPUs and 2 GB RAM), default settings |
+| Runtime | Elixir 1.20.4, Erlang/OTP 29 |
+
+The database had far less hardware than the machine, so a production Postgres should do better
+on the publish side.
 
 | What | Result |
 | --- | --- |

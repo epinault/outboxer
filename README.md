@@ -186,8 +186,8 @@ The guides go into each of these:
 
 ## Performance
 
-Measured with `mix bench` on a laptop, Postgres 17 in Docker, 200-byte payloads, and a relay that
-only counts, so these are the outbox's own costs:
+Measured with `mix bench`, 200-byte payloads, and a relay that only counts, so these are the
+outbox's own costs:
 
 | What | Result |
 | --- | --- |
@@ -197,6 +197,15 @@ only counts, so these are the outbox's own costs:
 | Relay, 4 partitions | 100,000 msg/s |
 | One poll with 10,000 pending rows | 0.8 ms |
 | One poll with 1,000,000 pending rows | 0.9 ms |
+
+The run was on this setup:
+
+| | |
+| --- | --- |
+| Machine | MacBook Pro, Apple M3 Max (14 cores), 96 GB RAM |
+| OS | macOS 26.6 |
+| Database | PostgreSQL 17.11 in Docker 27.4 (Linux VM limited to 2 CPUs and 2 GB RAM), default settings |
+| Runtime | Elixir 1.20.4, Erlang/OTP 29 |
 
 A poll costs the same at any backlog depth, and relay speed stays flat from the first message of a
 backlog to the last. Real throughput is set by your database and the destination, so run it on
