@@ -32,6 +32,7 @@ mix test.integration               # includes test/integration against the real 
 mix precommit                      # compile --warnings-as-errors, format check, credo --strict, test
 mix compile --no-optional-deps --warnings-as-errors   # relays must stay optional
 mix run examples/demo.exs          # runnable demo on SQLite
+mix bench                          # benchmark on Postgres (BENCH_REPO=sqlite, BENCH_SCALE, BENCH_PLANS)
 mix docs
 ```
 

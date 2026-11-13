@@ -154,9 +154,11 @@ one time in four, so you can see ordering and retries.
   transaction that rolled back.
 - Keeping per-entity order (all events of one order, one account, one aggregate) end to end.
 - Staying out of the way: the table stays close to empty, and the library is rarely the
-  bottleneck. On a laptop with Postgres in Docker, a rough measurement gave about 3,000
-  single-message transactions per second published, and tens of thousands of messages per second
-  relayed through a no-op relay. Real throughput is set by your database and the destination.
+  bottleneck. On a laptop with Postgres in Docker, `mix bench` measured about 5,500
+  single-message transactions per second published by 10 writers, and about 32,000 messages per
+  second relayed by one worker through a no-op relay (100,000 with four partitions). Real
+  throughput is set by your database and the destination. See
+  [Operations](guides/operations.md#performance) for the full numbers and how to run it yourself.
 
 **Not good at / not for**
 

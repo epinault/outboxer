@@ -34,7 +34,7 @@ defmodule Outboxer.MixProject do
   end
 
   def cli do
-    [preferred_envs: [precommit: :test, "test.integration": :test]]
+    [preferred_envs: [precommit: :test, "test.integration": :test, bench: :test]]
   end
 
   defp elixirc_paths(:test), do: ["lib", "test/support"]
@@ -71,6 +71,7 @@ defmodule Outboxer.MixProject do
     [
       setup: ["deps.get"],
       "test.integration": ["test --include integration"],
+      bench: ["run bench/outbox_bench.exs"],
       precommit: [
         "compile --warnings-as-errors",
         "format --check-formatted",

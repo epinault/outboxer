@@ -236,6 +236,40 @@ defmodule Outboxer.PostgresTest do
     end
   end
 
+  describe "query plan" do
+    # With statistics saying that every row is pending, the primary key looks
+    # as good as the pending index to the planner. It is not: once rows are
+    # delivered and kept (or dead), a primary key scan steps over all of them
+    # on every poll, until the next ANALYZE. See `Storage.SQL.fetch_query/5`.
+    test "the fetch reads the pending index even when statistics favour the primary key",
+         context do
+      name = start_outboxer(context, [events: []], testing: :manual)
+      conf = Outboxer.Config.fetch!(name)
+
+      PgRepo.query!("""
+      INSERT INTO outboxer_messages
+        (outbox, partition, group_key, type, payload, status, attempts, scheduled_at, inserted_at)
+      SELECT 'events', 0, 'g' || (g % 100), 't', 'x'::bytea, 'pending', 0, now(), now()
+      FROM generate_series(1, 20000) g
+      """)
+
+      PgRepo.query!("ANALYZE outboxer_messages")
+
+      # What a drain with retention: {:keep, _} leaves behind, unseen by the statistics.
+      PgRepo.query!(
+        "UPDATE outboxer_messages SET status = 'delivered', delivered_at = now() WHERE id <= 15000"
+      )
+
+      query = Outboxer.Storage.SQL.fetch_query(conf, :events, 0, 100, DateTime.utc_now())
+      plan = PgRepo.explain(:all, query, analyze: true)
+
+      assert plan =~ "outboxer_messages_pending_index"
+      refute plan =~ "outboxer_messages_pkey"
+      refute plan =~ "Rows Removed by Filter"
+      assert [%{id: 15_001} | _rest] = PgRepo.all(query)
+    end
+  end
+
   describe "table and prefix" do
     test "an instance can live in its own schema and table", context do
       name = start_outboxer(context, [events: @fast], prefix: "private", table: "custom_outbox")

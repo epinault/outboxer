@@ -24,6 +24,58 @@ that finds a full batch polls again immediately, so a backlog drains at full spe
 `pg_notify` takes a brief global lock at commit, so very write-heavy systems should measure before
 enabling it.
 
+## Performance
+
+`mix bench` (in this repository, `bench/outbox_bench.exs`) measures the library against a real
+database with a relay that only counts, so the numbers are the outbox's own cost, not a broker's.
+Run it on your hardware before trusting any figure:
+
+```sh
+docker compose up -d postgres
+mix bench                    # Postgres
+BENCH_REPO=sqlite mix bench  # SQLite
+BENCH_SCALE=5 mix bench      # five times the rows
+BENCH_PLANS=1 mix bench      # also print the Postgres query plans
+```
+
+Measured on a laptop, Postgres 17 in Docker, 200-byte payloads:
+
+| What | Result |
+| --- | --- |
+| Publish, 1 message per transaction, 1 writer | 1,000 txn/s |
+| Publish, 1 message per transaction, 10 writers | 5,500 txn/s |
+| Same with `notify: true` | 3,500 txn/s |
+| Same with `serialize_writes: true` | 3,700 txn/s |
+| Publish, 100 messages per transaction | 57,000 msg/s |
+| Relay, 1 partition, `batch_size: 100` | 32,000 msg/s |
+| Relay, 4 partitions | 100,000 msg/s |
+| Relay, 1 partition, `batch_size: 1_000` | 160,000 msg/s |
+| Relay, `retention: {:keep, _}` | 28,000 msg/s |
+| One poll, 10,000 pending rows | 0.8 ms |
+| One poll, 1,000,000 pending rows | 0.9 ms |
+| One poll, a blocked group with 100,000 rows behind its head | 15 ms |
+| One poll, 2,000 blocked groups with 10 rows behind each | 4.5 ms |
+| Prune delivered rows | 550,000 rows/s |
+| `Outboxer.counts/2` on 1,000,000 rows | 125 ms |
+
+What the numbers say:
+
+- **A poll costs the same at any backlog depth.** The worker reads the head of a partial index
+  that holds only pending rows, so a million waiting messages are no slower to read than ten
+  thousand. Relay speed stays flat from the first message of a backlog to the last.
+- **Batch size is the biggest lever** for a relay that sends in bulk, followed by partitions. A
+  relay that sends one message at a time is limited by its own round trip, not by the outbox.
+- **`notify` and `serialize_writes` cost about a third of publish throughput** under concurrent
+  writers. Turn them on when you need what they give, not by default.
+- **A blocked group with a deep queue behind it slows its whole partition.** Every poll has to
+  step over the rows that are waiting behind the failed message. At 100,000 such rows a poll takes
+  15 ms instead of under 1 ms, which caps the other groups of that partition at a few thousand
+  messages per second. This only happens in strict mode (`max_attempts: :infinity`) when a poison
+  message is left in place while its group keeps receiving messages. Alert on a message that
+  keeps retrying, and discard or fix it. More partitions limit the damage to one of them.
+- **`counts/2` reads every row of the outbox.** Call it from a periodic metrics job, not per
+  request.
+
 ## Keeping the table small
 
 Table bloat is the usual way outboxes hurt a database. Outboxer is designed around it, and a few
