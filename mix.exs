@@ -103,7 +103,8 @@ defmodule Outboxer.MixProject do
         "guides/custom-relays.md",
         "guides/operations.md",
         "guides/testing.md",
-        "CHANGELOG.md"
+        "CHANGELOG.md",
+        "LICENSE"
       ],
       groups_for_extras: [Guides: ~r"guides/"],
       groups_for_modules: [

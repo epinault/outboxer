@@ -100,6 +100,34 @@ defmodule Outboxer.PostgresTest do
     end
   end
 
+  describe "Outboxer.Testing.drain in manual mode" do
+    test "does not depend on the partition lock, so sandboxed tests cannot starve each other",
+         context do
+      name = start_outboxer(context, [events: []], testing: :manual)
+      conf = Outboxer.Config.fetch!(name)
+      Outboxer.publish(%Event{n: 1}, name: name, outbox: :events)
+      test_pid = self()
+
+      # Another process holds the partition, as a concurrent test's sandbox
+      # transaction would for as long as that test runs.
+      holder =
+        Task.async(fn ->
+          conf.storage.with_partition(conf, :events, 0, fn ->
+            send(test_pid, :locked)
+
+            receive do
+              :release -> :ok
+            end
+          end)
+        end)
+
+      assert_receive :locked
+      assert %{delivered: 1} = Outboxer.Testing.drain(:events, name: name)
+      send(holder.pid, :release)
+      Task.await(holder)
+    end
+  end
+
   describe "notify" do
     test "a commit wakes the worker long before the next poll", context do
       name = start_outboxer(context, [events: [poll_interval: 60_000]], notify: true)

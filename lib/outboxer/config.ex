@@ -3,7 +3,7 @@ defmodule Outboxer.Config do
   # Validated, immutable configuration of one Outboxer instance.
   #
   # Built once from the options given to `Outboxer.start_link/1` and stored in
-  # `:persistent_term` under the instance name, so that `Outboxer.publish/3`
+  # `:persistent_term` under the instance name, so that `Outboxer.publish/2`
   # can find it from any process without a GenServer call.
 
   alias Outboxer.Config.Outbox
@@ -155,7 +155,7 @@ defmodule Outboxer.Config do
     require_transaction: [
       type: :boolean,
       default: false,
-      doc: "Raise when `Outboxer.publish/3` is called outside a repo transaction."
+      doc: "Raise when `Outboxer.publish/2` is called outside a repo transaction."
     ],
     prune_interval: [
       type: :pos_integer,

@@ -125,7 +125,7 @@ defmodule Outboxer.Testing do
   # delivered or declared dead means whatever is left is failing, and trying
   # again would loop for as long as the failure lasts.
   defp drain_partition(conf, outbox, partition, totals) do
-    case Dispatcher.run(conf, outbox, partition) do
+    case Dispatcher.run(conf, outbox, partition, exclusive: conf.testing != :manual) do
       {:ok, %{fetched: 0}} ->
         totals
 

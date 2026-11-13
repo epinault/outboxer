@@ -30,9 +30,21 @@ defmodule Outboxer.Storage do
       every group that has a failed message waiting for its retry.
   """
 
-  alias Outboxer.Config
+  @typedoc """
+  The instance configuration. An adapter can rely on these fields:
 
-  @type conf :: Config.t()
+    * `:repo` - the `Ecto.Repo` module
+    * `:table` - the outbox table name
+    * `:prefix` - the schema of the table, or `nil`
+    * `:name` - the Outboxer instance name
+  """
+  @type conf :: %{
+          :repo => module(),
+          :table => String.t(),
+          :prefix => String.t() | nil,
+          :name => atom(),
+          optional(atom()) => term()
+        }
   @type outbox :: atom()
   @type row :: %{
           outbox: outbox(),

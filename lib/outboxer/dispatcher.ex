@@ -1,7 +1,7 @@
 defmodule Outboxer.Dispatcher do
   @moduledoc false
   # Delivers one batch of one partition: fetch, hand to the relay, record the
-  # outcome. Called by the partition workers and by `Outboxer.Testing.drain/3`,
+  # outcome. Called by the partition workers and by `Outboxer.Testing.drain/2`,
   # so the same code path runs in production and in tests.
 
   alias Outboxer.Backoff
@@ -20,16 +20,32 @@ defmodule Outboxer.Dispatcher do
 
   @empty %{fetched: 0, delivered: 0, failed: 0, dead: 0}
 
-  @spec run(Config.t(), Outbox.t(), non_neg_integer()) :: {:ok, summary()} | :busy
-  def run(%Config{} = conf, %Outbox{} = outbox, partition) do
-    conf.storage.with_partition(conf, outbox.name, partition, fn ->
-      now = DateTime.utc_now()
+  @doc """
+  Delivers one batch of a partition.
 
-      case conf.storage.fetch(conf, outbox.name, partition, outbox.batch_size, now) do
-        [] -> @empty
-        envelopes -> deliver(conf, outbox, partition, envelopes)
-      end
-    end)
+  With `exclusive: false` the partition lock is skipped and the batch runs in
+  a plain repo transaction. That is for `testing: :manual`, where no workers
+  exist to exclude, and where a lock taken inside one test's sandbox
+  transaction would make every concurrent test see the partition as busy.
+  """
+  @spec run(Config.t(), Outbox.t(), non_neg_integer(), keyword()) :: {:ok, summary()} | :busy
+  def run(%Config{} = conf, %Outbox{} = outbox, partition, opts \\ []) do
+    batch = fn -> batch(conf, outbox, partition) end
+
+    if Keyword.get(opts, :exclusive, true) do
+      conf.storage.with_partition(conf, outbox.name, partition, batch)
+    else
+      conf.repo.transaction(batch)
+    end
+  end
+
+  defp batch(conf, outbox, partition) do
+    now = DateTime.utc_now()
+
+    case conf.storage.fetch(conf, outbox.name, partition, outbox.batch_size, now) do
+      [] -> @empty
+      envelopes -> deliver(conf, outbox, partition, envelopes)
+    end
   end
 
   defp deliver(conf, outbox, partition, envelopes) do
