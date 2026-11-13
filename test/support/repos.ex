@@ -31,3 +31,11 @@ defmodule Outboxer.Test.PrefixedMigration do
   def up, do: Outboxer.Migration.up(prefix: "private", table: "custom_outbox")
   def down, do: Outboxer.Migration.down(prefix: "private", table: "custom_outbox")
 end
+
+defmodule Outboxer.Test.OrderOutboxMigration do
+  @moduledoc false
+  use Ecto.Migration
+
+  def up, do: Outboxer.Migration.up(table: "order_outbox")
+  def down, do: Outboxer.Migration.down(table: "order_outbox")
+end

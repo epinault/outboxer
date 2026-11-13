@@ -109,6 +109,31 @@ end)
 |> Repo.transaction()
 ```
 
+## Two common layouts
+
+**One table per outbox.** Each outbox can have its own table; without `table` they share
+`outboxer_messages`. Create each with `Outboxer.Migration.up(table: "order_outbox")`.
+
+```elixir
+outboxes: [
+  orders:   [table: "order_outbox",   relay: {Outboxer.Relay.Kafka, client: :my_brod_client, topic: "orders"}],
+  invoices: [table: "invoice_outbox", relay: {Outboxer.Relay.SQS, queue_url: "..."}]
+]
+```
+
+**Publish in one pod, relay in another.** Start the same outboxes everywhere and turn delivery
+off where it is not wanted. A `relay: false` node starts no processes and needs no broker
+settings or dependencies.
+
+```elixir
+{Outboxer,
+ repo: MyApp.Repo,
+ relay: System.get_env("OUTBOXER_RELAY", "true") == "true",
+ outboxes: [...]}
+```
+
+See [Storage](guides/storage.md) and [Operations](guides/operations.md) for the details.
+
 ## Try it
 
 A demo that needs nothing but this repository (SQLite, no broker):

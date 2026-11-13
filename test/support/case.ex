@@ -6,7 +6,7 @@ defmodule Outboxer.Case do
   # same test runs against SQLite and Postgres. They do not use the SQL
   # sandbox: workers run in their own processes and the Postgres adapter
   # relies on real transactions and advisory locks. Instead every test starts
-  # from an empty table and the modules run one at a time.
+  # from empty tables and the modules run one at a time.
 
   use ExUnit.CaseTemplate
 
@@ -22,7 +22,7 @@ defmodule Outboxer.Case do
 
   setup context do
     repo = Map.get(context, :repo)
-    if repo, do: repo.delete_all("outboxer_messages")
+    if repo, do: for(table <- ["outboxer_messages", "order_outbox"], do: repo.delete_all(table))
     :ok
   end
 

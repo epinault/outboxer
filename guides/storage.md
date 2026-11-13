@@ -52,7 +52,7 @@ Consequences:
 
 - **Do not run two nodes against the same database file**, and do not start two Outboxer instances
   with the same outboxes on it. For LiteFS-style replication, relay on the primary only and start
-  the other nodes with `testing: :manual` so they can still publish.
+  the other nodes with `relay: false` so they can still publish.
 - Use WAL mode (the `ecto_sqlite3` default) and a `busy_timeout` of a few seconds.
 - More partitions help only as far as the relay is the bottleneck; writes are serialised anyway.
 
@@ -82,7 +82,8 @@ dies (a lock with a TTL and fencing, in Redis terms).
 
 ## The table
 
-One table, `outboxer_messages` by default (`:table`, and `:prefix` for a Postgres schema):
+By default one table, `outboxer_messages`, shared by every outbox of the instance (instance options
+`:table`, and `:prefix` for a Postgres schema):
 
 | Column | Purpose |
 | --- | --- |
@@ -96,3 +97,57 @@ One table, `outboxer_messages` by default (`:table`, and `:prefix` for a Postgre
 
 All three indexes are partial. The two used on the hot path cover only `pending` rows, so their
 size tracks the backlog rather than the history.
+
+## One table per outbox
+
+An outbox can have a table of its own, named as you like:
+
+```elixir
+{Outboxer,
+ repo: MyApp.Repo,
+ outboxes: [
+   orders:   [table: "order_outbox",   relay: ...],
+   invoices: [table: "invoice_outbox", relay: ...],
+   audit:    [relay: ...]              # no :table, so it uses the instance table
+ ]}
+```
+
+Create each table with its own migration call. They all have the same columns and indexes:
+
+```elixir
+def up do
+  Outboxer.Migration.up(table: "order_outbox")
+  Outboxer.Migration.up(table: "invoice_outbox")
+  Outboxer.Migration.up()                          # outboxer_messages, for :audit
+end
+
+def down do
+  Outboxer.Migration.down(table: "order_outbox")
+  Outboxer.Migration.down(table: "invoice_outbox")
+  Outboxer.Migration.down()
+end
+```
+
+Publishing does not change: a message names its outbox, and the outbox knows its table. One
+`publish/2` call with messages for several outboxes writes to each table in the same transaction.
+
+When to split:
+
+- **Isolation.** A backlog, a bloated index or a slow vacuum in one outbox does not touch the
+  others. Autovacuum settings, retention and monitoring can differ per table.
+- **Operations.** You can truncate, inspect or move one outbox without filtering by name.
+
+When one shared table is fine: a handful of low-volume outboxes. The hot indexes are partial and
+lead with `outbox`, so outboxes in one table do not scan each other's rows.
+
+Two things follow from splitting:
+
+- **Ids are unique within a table, not across tables.** That is why `Outboxer.discard/3` and
+  `retry_dead/2` take the outbox. `Outboxer.Envelope.dedup_id/1` includes the outbox name and stays
+  unique.
+- **`partitions` is unrelated to tables.** It is the number of parallel delivery lanes inside one
+  outbox, 1 by default. With one table per outbox and the default, the `partition` column is
+  always 0.
+
+Moving an existing outbox to a new table: let it drain, then change `:table`. Rows left in the old
+table are not picked up.

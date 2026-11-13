@@ -51,6 +51,10 @@ Outboxer (Supervisor; no application.ex)          lib/outboxer.ex
 
 - `Outboxer.Config` validates options with NimbleOptions and stores the result in
   `:persistent_term` under `{Outboxer, name}`. Nothing reads `Application` env.
+- With `relay: false` (publish-only node) or `testing: :manual` the supervisor has no children.
+  `Config.workers?/1` is the one check for "are there local workers".
+- Each outbox has a `table` (default: the instance table). Message ids are unique per table, so
+  every id-based call carries the outbox.
 - `Outboxer.Dispatcher.run/4` is the single delivery path: lock partition, fetch, `relay.deliver`,
   settle. Workers and `Outboxer.Testing.drain/2` both go through it.
 - `Outboxer.Storage` is the database behaviour. `Storage.SQL` holds the portable Ecto queries;

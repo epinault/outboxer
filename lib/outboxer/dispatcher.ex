@@ -87,7 +87,7 @@ defmodule Outboxer.Dispatcher do
     {acked, failures, _blocked} =
       Enum.reduce(envelopes, {[], [], MapSet.new()}, &sort(outcome(result, &1), &1, &2))
 
-    conf.storage.ack(conf, acked, outbox.retention, now)
+    conf.storage.ack(conf, outbox.name, acked, outbox.retention, now)
     {dead, retried} = record_failures(conf, outbox, Enum.reverse(failures), now)
 
     %{fetched: length(envelopes), delivered: length(acked), failed: retried, dead: dead}
@@ -131,14 +131,14 @@ defmodule Outboxer.Dispatcher do
     {dead, retry} =
       Enum.split_with(failures, fn {envelope, _error} -> last_attempt?(outbox, envelope) end)
 
-    kill(conf, dead, now)
+    kill(conf, outbox, dead, now)
     schedule_retries(conf, outbox, retry, now)
     {length(dead), length(retry)}
   end
 
-  defp kill(conf, dead, now) do
+  defp kill(conf, outbox, dead, now) do
     for {error, envelopes} <- Enum.group_by(dead, &elem(&1, 1), &elem(&1, 0)) do
-      conf.storage.kill(conf, ids(envelopes), error, now)
+      conf.storage.kill(conf, outbox.name, ids(envelopes), error, now)
       for envelope <- envelopes, do: emit(:dead, conf, envelope, error)
     end
 
@@ -156,7 +156,7 @@ defmodule Outboxer.Dispatcher do
 
     for {{attempt, error}, envelopes} <- groups do
       retry_at = DateTime.add(now, Backoff.delay(outbox.backoff, attempt), :millisecond)
-      conf.storage.fail(conf, ids(envelopes), retry_at, error)
+      conf.storage.fail(conf, outbox.name, ids(envelopes), retry_at, error)
       for envelope <- envelopes, do: emit(:retry, conf, envelope, error)
     end
 

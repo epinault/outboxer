@@ -31,7 +31,24 @@ Things the code relies on that are not obvious from reading one file.
 - Local workers are woken directly only when `publish` runs outside a transaction; inside one the
   rows are not visible yet. Postgres `notify` covers the transactional case.
 
+## Tables
+
+- **An outbox lives in exactly one table** (`Outbox.table`, defaulting to the instance table), and
+  **ids are unique per table only**. Every storage call that takes ids (`ack`, `fail`, `kill`,
+  `discard`) also takes the outbox. Never look a message up by id alone.
+- `Storage.SQL.insert/2` writes one `INSERT` per table and restores the caller's order by index.
+  The envelopes returned by `publish/2` must stay in input order.
+- The Postgres advisory lock key hashes `{prefix, table, outbox}`. Moving an outbox to another
+  table changes its key, which is safe only because the old rows are no longer read.
+
 ## Configuration
+
+- `relay: false` makes an instance publish-only: no children, and `Outbox.relay` /
+  `Outbox.relay_state` are `nil` because relays are not even initialised (the node may lack the
+  broker dependency). Use `Config.workers?/1` to decide whether local workers exist; do not test
+  `conf.testing` directly. Anything that calls a relay must handle the `nil`.
+- Publishers and relays on different nodes must agree on outbox names, `table`, `partitions`,
+  `ordering`, instance `name` and `notify`. Nothing checks this across nodes.
 
 - Config lives in `:persistent_term` and is not erased when the supervisor stops. Relay state is
   part of it, so it must be small and immutable.

@@ -172,7 +172,7 @@ defmodule Outboxer.DeliveryTest do
       eventually(fn -> Outboxer.counts(:events, name: name).dead == 2 end)
 
       [first, second] = Outboxer.list_dead(:events, name: name)
-      assert Outboxer.discard([first.id], name: name) == 1
+      assert Outboxer.discard(:events, [first.id], name: name) == 1
 
       set_failures(failures, fn _envelope -> false end)
       assert Outboxer.retry_dead(:events, name: name, ids: [second.id]) == 1
@@ -195,7 +195,7 @@ defmodule Outboxer.DeliveryTest do
         end)
 
       refute_receive {:delivered, _envelope}, 50
-      Outboxer.discard([poison.id], name: name)
+      Outboxer.discard(:events, [poison.id], name: name)
 
       assert [envelope] = collect(1)
       assert n(envelope) == 2

@@ -20,3 +20,10 @@ defmodule Outboxer.Test.Custom do
   @impl Outboxer.Message
   def headers(%__MODULE__{trace: trace}), do: %{"trace" => trace}
 end
+
+defmodule Outboxer.Test.Order do
+  @moduledoc false
+  use Outboxer.Message, outbox: :orders
+
+  defstruct [:n]
+end

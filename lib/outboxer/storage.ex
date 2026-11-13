@@ -34,13 +34,17 @@ defmodule Outboxer.Storage do
   The instance configuration. An adapter can rely on these fields:
 
     * `:repo` - the `Ecto.Repo` module
-    * `:table` - the outbox table name
-    * `:prefix` - the schema of the table, or `nil`
+    * `:prefix` - the schema of the outbox tables, or `nil`
     * `:name` - the Outboxer instance name
+    * `:outboxes` - a map of outbox name to its configuration; `.table` is the
+      table that outbox lives in
+
+  Message ids are unique within a table only, which is why every callback that
+  takes ids also takes the outbox they belong to.
   """
   @type conf :: %{
           :repo => module(),
-          :table => String.t(),
+          :outboxes => %{optional(atom()) => %{:table => String.t(), optional(atom()) => term()}},
           :prefix => String.t() | nil,
           :name => atom(),
           optional(atom()) => term()
@@ -82,6 +86,7 @@ defmodule Outboxer.Storage do
   @doc "Records successful delivery: deletes the rows or marks them delivered."
   @callback ack(
               conf(),
+              outbox(),
               ids :: [pos_integer()],
               retention :: :delete | {:keep, pos_integer()},
               now :: DateTime.t()
@@ -89,11 +94,22 @@ defmodule Outboxer.Storage do
               :ok
 
   @doc "Records a failed attempt and schedules the retry."
-  @callback fail(conf(), ids :: [pos_integer()], retry_at :: DateTime.t(), error :: String.t()) ::
-              :ok
+  @callback fail(
+              conf(),
+              outbox(),
+              ids :: [pos_integer()],
+              retry_at :: DateTime.t(),
+              error :: String.t()
+            ) :: :ok
 
   @doc "Moves messages to the dead state after their last allowed attempt."
-  @callback kill(conf(), ids :: [pos_integer()], error :: String.t(), now :: DateTime.t()) :: :ok
+  @callback kill(
+              conf(),
+              outbox(),
+              ids :: [pos_integer()],
+              error :: String.t(),
+              now :: DateTime.t()
+            ) :: :ok
 
   @doc "Deletes up to `limit` delivered messages older than `cutoff`. Returns how many."
   @callback prune(conf(), outbox(), cutoff :: DateTime.t(), limit :: pos_integer()) ::

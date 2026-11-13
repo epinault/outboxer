@@ -84,7 +84,7 @@ happens afterwards and can be retried for as long as it takes.
 ## Vocabulary
 
 - **Outbox**: a named stream of messages with one relay and its own settings. An instance can have
-  several; they share one table.
+  several; they share one table unless you give each its own (`table: "order_outbox"`).
 - **Message**: your struct implementing `Outboxer.Message`.
 - **Envelope**: a stored message as the relay sees it (`Outboxer.Envelope`).
 - **Group**: messages sharing a group key; the unit of ordering.

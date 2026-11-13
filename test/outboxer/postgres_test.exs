@@ -140,6 +140,29 @@ defmodule Outboxer.PostgresTest do
       assert [_envelope] = collect(1, 2_000)
     end
 
+    test "a publish-only node's notification wakes the relaying node", context do
+      relay = start_outboxer(context, [events: [poll_interval: 60_000]], notify: true)
+      Process.sleep(300)
+
+      # Two instances in one VM cannot share a name, as two pods do. So the
+      # publisher's notification is sent under the relay's name, which is what
+      # a pod with the same configuration would send.
+      start_supervised!(
+        {Outboxer, name: NotifyPublisher, repo: PgRepo, relay: false, outboxes: [events: []]},
+        id: NotifyPublisher
+      )
+
+      conf = %{Outboxer.Config.fetch!(NotifyPublisher) | name: relay}
+
+      {:ok, _result} =
+        PgRepo.transaction(fn ->
+          {:ok, envelope} = Outboxer.publish(%Event{n: 1}, name: NotifyPublisher, outbox: :events)
+          Outboxer.Storage.Postgres.notify(conf, :events, envelope.partition)
+        end)
+
+      assert [_envelope] = collect(1, 2_000)
+    end
+
     test "nothing is delivered for a transaction that rolls back", context do
       name = start_outboxer(context, [events: [poll_interval: 60_000]], notify: true)
       Process.sleep(300)

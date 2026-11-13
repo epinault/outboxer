@@ -8,7 +8,8 @@ one group never run in parallel, whatever the number.
 
 **Connection pool (Postgres).** A partition that is delivering holds one connection. Add the total
 number of partitions of all outboxes to the pool size your application needs anyway. With
-`notify: true`, add one more connection outside the pool.
+`notify: true`, add one more connection outside the pool. This applies to nodes that relay; a
+publish-only node (`relay: false`) uses no connections of its own.
 
 **Batch size** (default 100). Larger batches mean fewer round trips and longer transactions. If the
 relay sends messages one by one (function relay, group-safe SQS), a batch takes `batch_size ×
@@ -34,7 +35,7 @@ choices are yours.
   `prune_interval`. Keep the window short. Each kept message costs an extra `UPDATE` and a dead
   tuple.
 - **Postgres autovacuum.** An outbox table is small and churns constantly, which the default
-  thresholds handle poorly. Tune it for this table:
+  thresholds handle poorly. Tune it for each outbox table:
 
   ```sql
   ALTER TABLE outboxer_messages SET (
@@ -81,7 +82,7 @@ Fix the cause and it goes out at its next retry. If the message can never be del
 and let the group continue:
 
 ```elixir
-Outboxer.discard([4711])
+Outboxer.discard(:orders, [4711])
 ```
 
 **Messages are dead.** With a numeric `max_attempts`:
@@ -90,7 +91,7 @@ Outboxer.discard([4711])
 Outboxer.list_dead(:orders)
 Outboxer.retry_dead(:orders)                 # all of them
 Outboxer.retry_dead(:orders, ids: [4711])    # some
-Outboxer.discard([4711])                     # give up for good
+Outboxer.discard(:orders, [4711])            # give up for good
 ```
 
 A revived message is sent as soon as it is picked up, possibly after later messages of its group.
@@ -105,11 +106,57 @@ A revived message is sent as soon as it is picked up, possibly after later messa
   [Ordering and groups](ordering-and-groups.md).
 - **Renaming or removing an outbox** leaves its pending rows without a worker. Drain it first, or
   delete the rows.
-- **Publish-only nodes.** Start Outboxer with `testing: :manual` on nodes that should write to the
-  outbox but not relay (a web tier in front of dedicated workers, for example). No processes are
-  started there.
+- **Publish-only nodes.** See [Running the relay on its own nodes](#running-the-relay-on-its-own-nodes).
 - **Read replicas.** Point Outboxer at the primary repo. Workers must see committed rows
   immediately and must write.
+
+## Running the relay on its own nodes
+
+By default every node that starts Outboxer both publishes and relays. To publish from one set of
+nodes (web pods, say) and relay from another, start the same outboxes everywhere and switch
+delivery off where you do not want it:
+
+```elixir
+# lib/my_app/application.ex, the same code in every pod
+{Outboxer,
+ repo: MyApp.Repo,
+ relay: System.get_env("OUTBOXER_RELAY", "true") == "true",
+ outboxes: MyApp.Outboxes.config()}
+```
+
+Set `OUTBOXER_RELAY=false` on the web deployment and leave it unset on the relay deployment.
+
+A `relay: false` instance:
+
+- starts no processes: no workers, no relay clients, no notifier, no pruner;
+- ignores the `:relay` option of its outboxes, so that key can be left out, and the node needs
+  neither broker settings nor the broker dependency (brod, ex_aws, Oban);
+- still supports `publish/2`, `publish_multi/4`, `counts/2`, `list_pending/2`, `list_dead/2`,
+  `retry_dead/2` and `discard/3`.
+
+What the two sides must agree on, because it decides where a message is written and who picks it
+up. Outboxer cannot check this across nodes, so build both from one function:
+
+| Setting | Why |
+| --- | --- |
+| Outbox names and `table` | The relay only reads the tables and outboxes it knows |
+| `partitions` | Publishers assign the partition; a relay with fewer never reads the rest |
+| `ordering`, `serialize_writes` | They decide the group key and locking at publish time |
+| Instance `name` and `notify` | The name is part of the `NOTIFY` payload the relay listens for |
+| `prefix`, `repo` database | Same tables |
+
+Things to know:
+
+- **Run at least one relaying node**, or messages only pile up. Several are fine on Postgres:
+  they compete for partitions through the database. Alert on `pending` growing.
+- **Pickup delay.** A relay on another node learns of a new message at its next poll
+  (`poll_interval`), or within milliseconds with `notify: true` on both sides.
+- **Retention.** The pruner runs on relaying nodes only.
+- **SQLite** is single-node, so this split applies to it only in a primary/replica setup such as
+  LiteFS: relay on the primary, `relay: false` elsewhere.
+
+`testing: :manual` is for tests. It also starts no workers, but it still initialises the relays so
+that `Outboxer.Testing.drain/2` can deliver through them.
 
 ## Failure modes, in short
 

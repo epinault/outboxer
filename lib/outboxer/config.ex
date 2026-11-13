@@ -16,6 +16,7 @@ defmodule Outboxer.Config do
     :prefix,
     table: "outboxer_messages",
     notify: false,
+    relay: true,
     testing: :disabled,
     require_transaction: false,
     prune_interval: 60_000,
@@ -29,6 +30,7 @@ defmodule Outboxer.Config do
           prefix: String.t() | nil,
           table: String.t(),
           notify: boolean(),
+          relay: boolean(),
           testing: :disabled | :manual,
           require_transaction: boolean(),
           prune_interval: pos_integer(),
@@ -38,9 +40,17 @@ defmodule Outboxer.Config do
   @outbox_schema [
     relay: [
       type: {:or, [:atom, {:tuple, [:atom, :keyword_list]}]},
-      required: true,
-      doc:
-        "The relay that delivers this outbox's messages: a module implementing `Outboxer.Relay`, or `{module, opts}`."
+      doc: """
+      The relay that delivers this outbox's messages: a module implementing `Outboxer.Relay`, or \
+      `{module, opts}`. Required, except on an instance started with `relay: false`, where it is ignored.
+      """
+    ],
+    table: [
+      type: :string,
+      doc: """
+      Table holding this outbox's messages, for example `"order_outbox"`. Defaults to the instance's \
+      `:table`. Create it with `Outboxer.Migration.up(table: "order_outbox")`.
+      """
     ],
     ordering: [
       type: {:in, [:group, :total, :none]},
@@ -125,12 +135,15 @@ defmodule Outboxer.Config do
     table: [
       type: :string,
       default: "outboxer_messages",
-      doc: "Name of the outbox table. Must match what was given to `Outboxer.Migration`."
+      doc: """
+      Name of the table used by every outbox that does not set its own `:table`. Must match what was \
+      given to `Outboxer.Migration`.
+      """
     ],
     prefix: [
       type: {:or, [:string, nil]},
       default: nil,
-      doc: "Postgres schema of the outbox table."
+      doc: "Postgres schema of the outbox tables."
     ],
     storage: [
       type: :atom,
@@ -144,12 +157,22 @@ defmodule Outboxer.Config do
       of waiting for the next poll. Uses one extra database connection.
       """
     ],
+    relay: [
+      type: :boolean,
+      default: true,
+      doc: """
+      Whether this node delivers messages. `false` makes the instance publish-only: nothing is started, \
+      no relay is initialised (so the outboxes need no `:relay` and the node needs no broker dependency), \
+      and `publish/2` and the admin functions still work. Use it on web nodes when a separate node, \
+      started with the same outboxes and `relay: true`, does the delivering.
+      """
+    ],
     testing: [
       type: {:in, [:disabled, :manual]},
       default: :disabled,
       doc: """
-      `:manual` starts no workers: messages are stored but only delivered when you call \
-      `Outboxer.Testing.drain/2`. Also the right setting for nodes that publish but must not relay.
+      For your test environment. `:manual` starts no workers: messages are stored but only delivered \
+      when you call `Outboxer.Testing.drain/2`.
       """
     ],
     require_transaction: [
@@ -187,10 +210,12 @@ defmodule Outboxer.Config do
     repo = Keyword.fetch!(opts, :repo)
     storage = Keyword.get_lazy(opts, :storage, fn -> Outboxer.Storage.for_repo!(repo) end)
 
+    instance = %{relay: Keyword.fetch!(opts, :relay), table: Keyword.fetch!(opts, :table)}
+
     outboxes =
       opts
       |> Keyword.fetch!(:outboxes)
-      |> Map.new(fn {name, outbox_opts} -> {name, Outbox.new!(name, outbox_opts)} end)
+      |> Map.new(fn {name, outbox_opts} -> {name, Outbox.new!(name, outbox_opts, instance)} end)
 
     fields =
       opts
@@ -200,6 +225,7 @@ defmodule Outboxer.Config do
         :table,
         :prefix,
         :notify,
+        :relay,
         :testing,
         :require_transaction,
         :prune_interval
@@ -237,6 +263,10 @@ defmodule Outboxer.Config do
                 "Configured outboxes: #{inspect(Map.keys(outboxes))}"
     end
   end
+
+  @doc "Whether this instance runs delivery workers in this VM."
+  @spec workers?(t()) :: boolean()
+  def workers?(%__MODULE__{relay: relay, testing: testing}), do: relay and testing == :disabled
 
   @spec registry(atom()) :: atom()
   # One atom per configured instance, created at boot: not an atom leak.

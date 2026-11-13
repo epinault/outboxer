@@ -115,6 +115,13 @@ defmodule Outboxer.Testing do
     conf = Config.fetch!(Keyword.get(opts, :name, Outboxer))
     outbox = Config.outbox!(conf, outbox)
 
+    if outbox.relay == nil do
+      raise ArgumentError,
+            "cannot drain outbox #{inspect(outbox.name)}: Outboxer instance #{inspect(conf.name)} " <>
+              "was started with relay: false, so it has no relay to deliver through. " <>
+              "Use testing: :manual (with relay: true) in tests."
+    end
+
     Enum.reduce(0..(outbox.partitions - 1), %{delivered: 0, failed: 0, dead: 0}, fn partition,
                                                                                     totals ->
       drain_partition(conf, outbox, partition, totals)

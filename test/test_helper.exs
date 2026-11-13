@@ -17,6 +17,7 @@ for suffix <- ["", "-wal", "-shm"], do: File.rm(sqlite_file <> suffix)
 # connections racing to create a fresh SQLite file report "database is locked".
 {:ok, bootstrap} = SqliteRepo.start_link(pool_size: 1)
 Ecto.Migrator.up(SqliteRepo, 1, Migration, log: false)
+Ecto.Migrator.up(SqliteRepo, 2, Outboxer.Test.OrderOutboxMigration, log: false)
 Supervisor.stop(bootstrap)
 {:ok, _pid} = SqliteRepo.start_link()
 
@@ -36,6 +37,7 @@ postgres? =
       PgRepo.query!("DROP SCHEMA IF EXISTS private CASCADE")
       PgRepo.query!("CREATE SCHEMA private")
       Ecto.Migrator.up(PgRepo, 3, Outboxer.Test.PrefixedMigration, log: false)
+      Ecto.Migrator.up(PgRepo, 4, Outboxer.Test.OrderOutboxMigration, log: false)
       true
     else
       _unavailable -> false

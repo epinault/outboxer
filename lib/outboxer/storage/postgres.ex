@@ -47,20 +47,20 @@ if Code.ensure_loaded?(Postgrex) do
     defdelegate fetch(conf, outbox, partition, limit, now), to: SQL
 
     @impl Outboxer.Storage
-    defdelegate ack(conf, ids, retention, now), to: SQL
+    defdelegate ack(conf, outbox, ids, retention, now), to: SQL
 
     @impl Outboxer.Storage
-    defdelegate fail(conf, ids, retry_at, error), to: SQL
+    defdelegate fail(conf, outbox, ids, retry_at, error), to: SQL
 
     @impl Outboxer.Storage
-    defdelegate kill(conf, ids, error, now), to: SQL
+    defdelegate kill(conf, outbox, ids, error, now), to: SQL
 
     @impl Outboxer.Storage
     defdelegate prune(conf, outbox, cutoff, limit), to: SQL
 
     @impl Outboxer.Storage
     def lock_group(%Config{} = conf, outbox, group_key) do
-      key = :erlang.phash2({conf.prefix, conf.table, outbox, group_key}, 2_147_483_647)
+      key = :erlang.phash2({conf.prefix, table(conf, outbox), outbox, group_key}, 2_147_483_647)
       conf.repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [lock_key(conf, outbox), key])
       :ok
     end
@@ -94,7 +94,9 @@ if Code.ensure_loaded?(Postgrex) do
     # The two-argument advisory lock functions take two int4 values. The first
     # identifies the outbox (within its table), the second the partition.
     defp lock_key(%Config{} = conf, outbox) do
-      :erlang.phash2({conf.prefix, conf.table, outbox}, 2_147_483_647)
+      :erlang.phash2({conf.prefix, table(conf, outbox), outbox}, 2_147_483_647)
     end
+
+    defp table(conf, outbox), do: Config.outbox!(conf, outbox).table
   end
 end

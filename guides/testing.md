@@ -22,6 +22,10 @@ children = [MyApp.Repo, {Outboxer, outboxer}]
 
 The relay's options are still validated at boot, so configuration mistakes show up in tests.
 
+Do not confuse this with `relay: false`, which is for production nodes that publish while other
+nodes relay (see [Operations](operations.md#running-the-relay-on-its-own-nodes)). A `relay: false`
+instance has no relay at all, so `drain/2` raises on it.
+
 ### Assert that something was published
 
 ```elixir

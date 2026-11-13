@@ -11,11 +11,22 @@ defmodule Outboxer.Storage.SQL do
 
   @max_error_length 2_000
 
+  # Rows may belong to outboxes in different tables: one INSERT per table,
+  # and the envelopes come back in the order the rows were given.
   def insert(%Config{} = conf, rows) do
     now = DateTime.utc_now()
 
+    rows
+    |> Enum.with_index()
+    |> Enum.group_by(fn {row, _index} -> Config.outbox!(conf, row.outbox).table end)
+    |> Enum.flat_map(fn {table, indexed} -> insert_into(conf, table, indexed, now) end)
+    |> Enum.sort_by(fn {_envelope, index} -> index end)
+    |> Enum.map(fn {envelope, _index} -> envelope end)
+  end
+
+  defp insert_into(conf, table, indexed, now) do
     entries =
-      Enum.map(rows, fn row ->
+      Enum.map(indexed, fn {row, _index} ->
         %{
           outbox: Atom.to_string(row.outbox),
           partition: row.partition,
@@ -31,13 +42,13 @@ defmodule Outboxer.Storage.SQL do
       end)
 
     {_count, inserted} =
-      conf.repo.insert_all({conf.table, Record}, entries, opts(conf, returning: [:id]))
+      conf.repo.insert_all({table, Record}, entries, opts(conf, returning: [:id]))
 
     # insert_all returns rows in insertion order on both adapters.
     inserted
-    |> Enum.zip(rows)
-    |> Enum.map(fn {%{id: id}, row} ->
-      %Outboxer.Envelope{
+    |> Enum.zip(indexed)
+    |> Enum.map(fn {%{id: id}, {row, index}} ->
+      envelope = %Outboxer.Envelope{
         id: id,
         outbox: row.outbox,
         partition: row.partition,
@@ -47,6 +58,8 @@ defmodule Outboxer.Storage.SQL do
         headers: row.headers,
         inserted_at: now
       }
+
+      {envelope, index}
     end)
   end
 
@@ -56,14 +69,14 @@ defmodule Outboxer.Storage.SQL do
     # Groups whose head failed and is waiting for its retry. Nothing behind
     # that head may be delivered, or order would break.
     blocked =
-      from(b in source(conf),
+      from(b in source(conf, outbox),
         where: b.outbox == ^name and b.partition == ^partition and b.status == "pending",
         where: b.attempts > 0 and b.scheduled_at > ^now and not is_nil(b.group_key),
         select: b.group_key
       )
 
     query =
-      from(m in source(conf),
+      from(m in source(conf, outbox),
         where: m.outbox == ^name and m.partition == ^partition and m.status == "pending",
         where: m.scheduled_at <= ^now,
         where: is_nil(m.group_key) or m.group_key not in subquery(blocked),
@@ -76,15 +89,15 @@ defmodule Outboxer.Storage.SQL do
     |> Enum.map(&Record.to_envelope(&1, outbox))
   end
 
-  def ack(_conf, [], _retention, _now), do: :ok
+  def ack(_conf, _outbox, [], _retention, _now), do: :ok
 
-  def ack(%Config{} = conf, ids, :delete, _now) do
-    conf.repo.delete_all(from(m in source(conf), where: m.id in ^ids), opts(conf))
+  def ack(%Config{} = conf, outbox, ids, :delete, _now) do
+    conf.repo.delete_all(from(m in source(conf, outbox), where: m.id in ^ids), opts(conf))
     :ok
   end
 
-  def ack(%Config{} = conf, ids, {:keep, _seconds}, now) do
-    query = from(m in source(conf), where: m.id in ^ids)
+  def ack(%Config{} = conf, outbox, ids, {:keep, _seconds}, now) do
+    query = from(m in source(conf, outbox), where: m.id in ^ids)
 
     conf.repo.update_all(
       query,
@@ -95,19 +108,19 @@ defmodule Outboxer.Storage.SQL do
     :ok
   end
 
-  def fail(_conf, [], _retry_at, _error), do: :ok
+  def fail(_conf, _outbox, [], _retry_at, _error), do: :ok
 
-  def fail(%Config{} = conf, ids, retry_at, error) do
-    query = from(m in source(conf), where: m.id in ^ids)
+  def fail(%Config{} = conf, outbox, ids, retry_at, error) do
+    query = from(m in source(conf, outbox), where: m.id in ^ids)
     updates = [inc: [attempts: 1], set: [scheduled_at: retry_at, last_error: truncate(error)]]
     conf.repo.update_all(query, updates, opts(conf))
     :ok
   end
 
-  def kill(_conf, [], _error, _now), do: :ok
+  def kill(_conf, _outbox, [], _error, _now), do: :ok
 
-  def kill(%Config{} = conf, ids, error, now) do
-    query = from(m in source(conf), where: m.id in ^ids)
+  def kill(%Config{} = conf, outbox, ids, error, now) do
+    query = from(m in source(conf, outbox), where: m.id in ^ids)
 
     updates = [
       inc: [attempts: 1],
@@ -122,14 +135,17 @@ defmodule Outboxer.Storage.SQL do
     name = Atom.to_string(outbox)
 
     stale =
-      from(m in source(conf),
+      from(m in source(conf, outbox),
         where: m.outbox == ^name and m.status == "delivered" and m.delivered_at < ^cutoff,
         select: m.id,
         limit: ^limit
       )
 
     {count, _rows} =
-      conf.repo.delete_all(from(m in source(conf), where: m.id in subquery(stale)), opts(conf))
+      conf.repo.delete_all(
+        from(m in source(conf, outbox), where: m.id in subquery(stale)),
+        opts(conf)
+      )
 
     count
   end
@@ -140,7 +156,7 @@ defmodule Outboxer.Storage.SQL do
     name = Atom.to_string(outbox)
 
     query =
-      from(m in source(conf),
+      from(m in source(conf, outbox),
         where: m.outbox == ^name and m.status == ^status,
         order_by: [asc: m.id],
         limit: ^limit
@@ -153,7 +169,7 @@ defmodule Outboxer.Storage.SQL do
     name = Atom.to_string(outbox)
 
     query =
-      from(m in source(conf),
+      from(m in source(conf, outbox),
         where: m.outbox == ^name,
         group_by: m.status,
         select: {m.status, count(m.id)}
@@ -170,7 +186,7 @@ defmodule Outboxer.Storage.SQL do
 
   def revive(%Config{} = conf, outbox, ids) do
     name = Atom.to_string(outbox)
-    query = from(m in source(conf), where: m.outbox == ^name and m.status == "dead")
+    query = from(m in source(conf, outbox), where: m.outbox == ^name and m.status == "dead")
     query = if ids == :all, do: query, else: from(m in query, where: m.id in ^ids)
 
     updates = [
@@ -181,16 +197,18 @@ defmodule Outboxer.Storage.SQL do
     count
   end
 
-  def discard(%Config{} = conf, ids) do
-    {count, _rows} =
-      conf.repo.delete_all(from(m in source(conf), where: m.id in ^ids), opts(conf))
+  def discard(%Config{} = conf, outbox, ids) do
+    name = Atom.to_string(outbox)
+    query = from(m in source(conf, outbox), where: m.outbox == ^name and m.id in ^ids)
+    {count, _rows} = conf.repo.delete_all(query, opts(conf))
 
     count
   end
 
   # -- helpers ----------------------------------------------------------------
 
-  def source(%Config{table: table}), do: {table, Record}
+  @doc "The Ecto source of an outbox: its table, read through the `Record` schema."
+  def source(%Config{} = conf, outbox), do: {Config.outbox!(conf, outbox).table, Record}
 
   def opts(%Config{prefix: nil}, extra), do: extra
   def opts(%Config{prefix: prefix}, extra), do: Keyword.put(extra, :prefix, prefix)

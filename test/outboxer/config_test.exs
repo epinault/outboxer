@@ -54,9 +54,31 @@ defmodule Outboxer.ConfigTest do
       Config.new!([])
     end
 
-    assert_raise NimbleOptions.ValidationError, ~r/required :relay option not found/, fn ->
+    assert_raise ArgumentError, ~r/outbox :events has no :relay.*relay: false/s, fn ->
       Config.new!(repo: SqliteRepo, outboxes: [events: []])
     end
+  end
+
+  test "relay: false needs no relay and initialises none" do
+    conf =
+      Config.new!(
+        repo: SqliteRepo,
+        relay: false,
+        outboxes: [events: [], other: [relay: NoSuchRelay]]
+      )
+
+    assert conf.relay == false
+    refute Config.workers?(conf)
+    assert %{relay: nil, relay_state: nil} = conf.outboxes.events
+    assert %{relay: nil, relay_state: nil} = conf.outboxes.other
+  end
+
+  test "an outbox uses its own table, or the instance table" do
+    conf = new!([table: "order_outbox"], table: "shared_outbox")
+    assert conf.outboxes.events.table == "order_outbox"
+
+    assert new!([], table: "shared_outbox").outboxes.events.table == "shared_outbox"
+    assert new!([]).outboxes.events.table == "outboxer_messages"
   end
 
   test "rejects invalid outbox options with the option named" do

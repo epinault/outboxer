@@ -48,10 +48,10 @@ What happens next depends on `:max_attempts`:
 
 - **`:infinity` (default): strict.** The message is retried forever. Order is never broken, and
   the group stays blocked until the cause is fixed or you remove the message with
-  `Outboxer.discard/2`. Choose this when a gap in the sequence is worse than a delay.
+  `Outboxer.discard/3`. Choose this when a gap in the sequence is worse than a delay.
 - **A number: dead-letter and continue.** After that many failures the message becomes *dead* and
   the group moves on. Order now has a gap. Dead messages stay in the table until you call
-  `Outboxer.retry_dead/2` or `Outboxer.discard/2`. Choose this when one poison message must not
+  `Outboxer.retry_dead/2` or `Outboxer.discard/3`. Choose this when one poison message must not
   stall an entity indefinitely.
 
 ```elixir

@@ -2,9 +2,11 @@ defmodule Outboxer.Config.Outbox do
   @moduledoc false
   # Validated configuration of a single outbox, including its initialised relay.
 
-  @enforce_keys [:name, :relay, :relay_state]
+  # `relay` and `relay_state` are nil on a publish-only instance (`relay: false`).
+  @enforce_keys [:name, :table]
   defstruct [
     :name,
+    :table,
     :relay,
     :relay_state,
     ordering: :group,
@@ -19,7 +21,8 @@ defmodule Outboxer.Config.Outbox do
 
   @type t :: %__MODULE__{
           name: atom(),
-          relay: module(),
+          table: String.t(),
+          relay: module() | nil,
           relay_state: term(),
           ordering: :group | :total | :none,
           partitions: pos_integer(),
@@ -36,21 +39,39 @@ defmodule Outboxer.Config.Outbox do
   @doc "The group key every message of an `ordering: :total` outbox is stored under."
   def total_group, do: @total_group
 
-  @spec new!(atom(), keyword()) :: t()
-  def new!(name, opts) do
-    {relay, relay_opts} = split_relay(Keyword.fetch!(opts, :relay))
+  @doc """
+  Builds an outbox from its validated options. `instance` carries what the
+  outbox inherits from its instance: the default `:table`, and whether the
+  instance relays at all (`:relay`).
+  """
+  @spec new!(atom(), keyword(), %{relay: boolean(), table: String.t()}) :: t()
+  def new!(name, opts, instance) do
     validate_backoff!(name, Keyword.fetch!(opts, :backoff))
 
     fields =
       opts
       |> Keyword.drop([:relay])
-      |> Keyword.merge(
-        name: name,
-        relay: relay,
-        relay_state: init_relay!(name, relay, relay_opts)
-      )
+      |> Keyword.put_new(:table, instance.table)
+      |> Keyword.merge(name: name)
+      |> Keyword.merge(relay_fields(name, Keyword.get(opts, :relay), instance))
 
     __MODULE__ |> struct!(fields) |> normalize()
+  end
+
+  # A publish-only instance never calls a relay, so it does not load or
+  # initialise one: the node may not even have the broker dependency.
+  defp relay_fields(_name, _relay, %{relay: false}), do: []
+
+  defp relay_fields(name, nil, %{relay: true}) do
+    raise ArgumentError,
+          "outbox #{inspect(name)} has no :relay. Give it one, for example " <>
+            "relay: {Outboxer.Relay.Kafka, ...}, or start this instance with relay: false " <>
+            "if this node only publishes and another node delivers."
+  end
+
+  defp relay_fields(name, relay, %{relay: true}) do
+    {module, relay_opts} = split_relay(relay)
+    [relay: module, relay_state: init_relay!(name, module, relay_opts)]
   end
 
   # A single global order means a single lane.

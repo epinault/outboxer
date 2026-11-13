@@ -67,7 +67,35 @@ defmodule Outboxer do
       │   └── one worker per partition
       └── Outboxer.Pruner                only if an outbox uses retention: {:keep, _}
 
-  With `testing: :manual` none of these are started and `publish/2` still works.
+  With `relay: false` or `testing: :manual` none of these are started and
+  `publish/2` still works.
+
+  ## Publishing and relaying on different nodes
+
+  Start the same outboxes everywhere and switch delivery off where it is not
+  wanted, for example on web pods:
+
+      {Outboxer,
+       repo: MyApp.Repo,
+       relay: System.get_env("OUTBOXER_RELAY", "true") == "true",
+       outboxes: [...]}
+
+  A `relay: false` instance only publishes. It ignores the `:relay` of its
+  outboxes, so it needs neither broker settings nor the broker's dependency.
+  See the operations guide for what the two sides must agree on.
+
+  ## One table per outbox
+
+  Every outbox can live in its own table:
+
+      outboxes: [
+        orders: [table: "order_outbox", relay: ...],
+        invoices: [table: "invoice_outbox", relay: ...]
+      ]
+
+  Create each one with `Outboxer.Migration.up(table: "order_outbox")`. Outboxes
+  without `:table` share the instance's table. Message ids are unique within a
+  table, not across tables.
 
   ## Several instances
 
@@ -133,14 +161,16 @@ defmodule Outboxer do
     Supervisor.init(children(conf), strategy: :one_for_one)
   end
 
-  defp children(%Config{testing: :manual}), do: []
-
   defp children(%Config{} = conf) do
-    outboxes =
-      for {_name, outbox} <- conf.outboxes, do: {Outboxer.OutboxSupervisor, {conf.name, outbox}}
+    if Config.workers?(conf) do
+      outboxes =
+        for {_name, outbox} <- conf.outboxes, do: {Outboxer.OutboxSupervisor, {conf.name, outbox}}
 
-    [{Registry, keys: :unique, name: Config.registry(conf.name)}] ++
-      notifier(conf) ++ outboxes ++ pruner(conf)
+      [{Registry, keys: :unique, name: Config.registry(conf.name)}] ++
+        notifier(conf) ++ outboxes ++ pruner(conf)
+    else
+      []
+    end
   end
 
   defp notifier(%Config{notify: true, storage: Outboxer.Storage.Postgres, name: name}) do
@@ -335,7 +365,7 @@ defmodule Outboxer do
 
     # Outside a transaction the rows are already committed, so the local
     # workers can be told right away. Inside one they are not visible yet.
-    if not in_transaction? and conf.testing == :disabled do
+    if not in_transaction? and Config.workers?(conf) do
       Enum.each(partitions, fn {outbox, partition} ->
         Outboxer.Worker.wake(conf.name, outbox, partition)
       end)
@@ -416,23 +446,28 @@ defmodule Outboxer do
     conf = conf(opts)
     outbox = Config.outbox!(conf, outbox).name
     count = SQL.revive(conf, outbox, Keyword.get(opts, :ids, :all))
-    if conf.testing == :disabled, do: Outboxer.Worker.wake(conf.name, outbox)
+    if Config.workers?(conf), do: Outboxer.Worker.wake(conf.name, outbox)
     count
   end
 
   @doc """
-  Permanently deletes messages by id, whatever their state. Returns how many
-  were deleted.
+  Permanently deletes messages of an outbox by id, whatever their state.
+  Returns how many were deleted.
 
   This is how you skip a poison message that blocks a group under
   `max_attempts: :infinity`: find it with `list_pending/2` and discard it.
+
+      Outboxer.discard(:orders, [4711])
 
   ## Options
 
     * `:name` - the Outboxer instance, default `Outboxer`.
   """
-  @spec discard([pos_integer()], keyword()) :: non_neg_integer()
-  def discard(ids, opts \\ []) when is_list(ids), do: SQL.discard(conf(opts), ids)
+  @spec discard(atom(), [pos_integer()], keyword()) :: non_neg_integer()
+  def discard(outbox, ids, opts \\ []) when is_atom(outbox) and is_list(ids) do
+    conf = conf(opts)
+    SQL.discard(conf, Config.outbox!(conf, outbox).name, ids)
+  end
 
   defp conf(opts), do: Config.fetch!(Keyword.get(opts, :name, __MODULE__))
 end

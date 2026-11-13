@@ -68,6 +68,11 @@ defmodule Outboxer.SupervisorTest do
     SqliteRepo.delete_all("outboxer_messages")
   end
 
+  test "relay: false starts no processes, not even the pruner", context do
+    name = start_outboxer(context, [a: [retention: {:keep, 60}]], relay: false)
+    assert child_ids(name) == []
+  end
+
   test "notify is ignored on SQLite", context do
     name = start_outboxer(context, [a: []], notify: true)
     refute Outboxer.Notifier in child_ids(name)

@@ -16,8 +16,8 @@ if Code.ensure_loaded?(Ecto.Adapters.SQLite3) do
     The consequence: do not point two running nodes (or two Outboxer instances
     with the same outboxes) at the same SQLite file. They would deliver the
     same messages twice and out of order. For a replicated setup such as
-    LiteFS, run the relay on the primary only and use `testing: :manual` on the
-    other nodes so they can still publish.
+    LiteFS, run the relay on the primary only and start the other nodes with
+    `relay: false` so they can still publish.
 
     `serialize_writes` and `notify` have no effect here: writers are already
     serialised by SQLite, and there are no other nodes to notify.
@@ -34,13 +34,13 @@ if Code.ensure_loaded?(Ecto.Adapters.SQLite3) do
     defdelegate fetch(conf, outbox, partition, limit, now), to: SQL
 
     @impl Outboxer.Storage
-    defdelegate ack(conf, ids, retention, now), to: SQL
+    defdelegate ack(conf, outbox, ids, retention, now), to: SQL
 
     @impl Outboxer.Storage
-    defdelegate fail(conf, ids, retry_at, error), to: SQL
+    defdelegate fail(conf, outbox, ids, retry_at, error), to: SQL
 
     @impl Outboxer.Storage
-    defdelegate kill(conf, ids, error, now), to: SQL
+    defdelegate kill(conf, outbox, ids, error, now), to: SQL
 
     @impl Outboxer.Storage
     defdelegate prune(conf, outbox, cutoff, limit), to: SQL
