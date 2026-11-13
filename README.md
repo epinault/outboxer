@@ -31,6 +31,7 @@ crash between the two steps either loses the message or publishes one for data t
 - **No global configuration and no application.** Everything is passed to `{Outboxer, opts}` in your
   supervision tree, and only the processes that configuration needs are started.
 - **Multi-node safe** on Postgres, with no leader election and no leases to expire.
+- **Benchmarked.** `mix bench` runs against a real database; see [Performance](#performance).
 
 ## Installation
 
@@ -154,11 +155,7 @@ one time in four, so you can see ordering and retries.
   transaction that rolled back.
 - Keeping per-entity order (all events of one order, one account, one aggregate) end to end.
 - Staying out of the way: the table stays close to empty, and the library is rarely the
-  bottleneck. On a laptop with Postgres in Docker, `mix bench` measured about 5,500
-  single-message transactions per second published by 10 writers, and about 32,000 messages per
-  second relayed by one worker through a no-op relay (100,000 with four partitions). Real
-  throughput is set by your database and the destination. See
-  [Operations](guides/operations.md#performance) for the full numbers and how to run it yourself.
+  bottleneck. See [Performance](#performance).
 
 **Not good at / not for**
 
@@ -186,6 +183,33 @@ The guides go into each of these:
   [writing your own](guides/custom-relays.md)
 - [Operations](guides/operations.md): sizing, table bloat, monitoring, stuck and dead messages
 - [Testing](guides/testing.md)
+
+## Performance
+
+Measured with `mix bench` on a laptop, Postgres 17 in Docker, 200-byte payloads, and a relay that
+only counts, so these are the outbox's own costs:
+
+| What | Result |
+| --- | --- |
+| Publish, 1 message per transaction, 10 writers | 5,500 txn/s |
+| Publish, 100 messages per transaction | 57,000 msg/s |
+| Relay, 1 partition, `batch_size: 100` | 32,000 msg/s |
+| Relay, 4 partitions | 100,000 msg/s |
+| One poll with 10,000 pending rows | 0.8 ms |
+| One poll with 1,000,000 pending rows | 0.9 ms |
+
+A poll costs the same at any backlog depth, and relay speed stays flat from the first message of a
+backlog to the last. Real throughput is set by your database and the destination, so run it on
+your own hardware:
+
+```sh
+docker compose up -d postgres
+mix bench                    # Postgres
+BENCH_REPO=sqlite mix bench  # SQLite
+```
+
+The benchmark is [`bench/outbox_bench.exs`](bench/outbox_bench.exs). The full results, including
+the slow spots, are in [Operations](guides/operations.md#performance).
 
 ## Development
 
