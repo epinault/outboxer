@@ -99,8 +99,8 @@ defmodule Outboxer.Testing do
   Delivers everything currently deliverable in an outbox, synchronously, in
   the calling process, through the configured relay.
 
-  Returns `%{delivered: n, failed: n, dead: n}`. Failed messages are scheduled
-  for a retry in the future and are not attempted again by the same call.
+  Returns `%{delivered: n, failed: n, dead: n}`. It stops as soon as a pass
+  delivers nothing, so a message that keeps failing cannot make it loop.
 
   ## Options
 
@@ -121,6 +121,9 @@ defmodule Outboxer.Testing do
     end)
   end
 
+  # Keeps going while a pass makes progress. A pass in which nothing was
+  # delivered or declared dead means whatever is left is failing, and trying
+  # again would loop for as long as the failure lasts.
   defp drain_partition(conf, outbox, partition, totals) do
     case Dispatcher.run(conf, outbox, partition) do
       {:ok, %{fetched: 0}} ->
@@ -132,7 +135,11 @@ defmodule Outboxer.Testing do
             a + b
           end)
 
-        drain_partition(conf, outbox, partition, totals)
+        if summary.delivered + summary.dead > 0 do
+          drain_partition(conf, outbox, partition, totals)
+        else
+          totals
+        end
 
       :busy ->
         totals

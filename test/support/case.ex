@@ -38,6 +38,7 @@ defmodule Outboxer.Case do
   process, unless it names its own.
   """
   def start_outboxer(context, outboxes, opts \\ []) do
+    # credo:disable-for-next-line Credo.Check.Warning.UnsafeToAtom
     name = Module.concat(Outboxer.TestInstance, "N#{System.unique_integer([:positive])}")
     test_pid = self()
 

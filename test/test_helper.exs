@@ -13,8 +13,12 @@ excluded = ExUnit.configuration()[:exclude]
 sqlite_file = SqliteRepo.config()[:database]
 for suffix <- ["", "-wal", "-shm"], do: File.rm(sqlite_file <> suffix)
 
-{:ok, _pid} = SqliteRepo.start_link()
+# Create and migrate the file through a single connection first: several
+# connections racing to create a fresh SQLite file report "database is locked".
+{:ok, bootstrap} = SqliteRepo.start_link(pool_size: 1)
 Ecto.Migrator.up(SqliteRepo, 1, Migration, log: false)
+Supervisor.stop(bootstrap)
+{:ok, _pid} = SqliteRepo.start_link()
 
 postgres? =
   if :postgres in excluded do
@@ -36,7 +40,7 @@ postgres? =
   end
 
 if not postgres? and :postgres not in excluded do
-  IO.puts("""
+  Mix.shell().info("""
 
   !! Postgres is not reachable, so Postgres tests are skipped.
      Start it with `docker compose up -d postgres`, or silence this with `mix test --exclude postgres`.

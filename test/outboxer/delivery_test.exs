@@ -191,7 +191,7 @@ defmodule Outboxer.DeliveryTest do
 
       [poison | _rest] =
         eventually(fn ->
-          match?([%{attempts: a} | _] when a > 0, pending(name)) && pending(name)
+          match?([%{attempts: a} | _rest] when a > 0, pending(name)) && pending(name)
         end)
 
       refute_receive {:delivered, _envelope}, 50

@@ -69,27 +69,25 @@ defmodule Outboxer.Dispatcher do
     now = DateTime.utc_now()
 
     {acked, failures, _blocked} =
-      Enum.reduce(envelopes, {[], [], MapSet.new()}, fn envelope, {acked, failures, blocked} ->
-        case outcome(result, envelope) do
-          :ok ->
-            {[envelope.id | acked], failures, blocked}
-
-          {:error, reason} ->
-            if grouped?(envelope) and MapSet.member?(blocked, envelope.group_key) do
-              {acked, failures, blocked}
-            else
-              {acked, [{envelope, reason} | failures], block(blocked, envelope)}
-            end
-
-          :skipped ->
-            {acked, failures, blocked}
-        end
-      end)
+      Enum.reduce(envelopes, {[], [], MapSet.new()}, &sort(outcome(result, &1), &1, &2))
 
     conf.storage.ack(conf, acked, outbox.retention, now)
     {dead, retried} = record_failures(conf, outbox, Enum.reverse(failures), now)
 
     %{fetched: length(envelopes), delivered: length(acked), failed: retried, dead: dead}
+  end
+
+  defp sort(:ok, envelope, {acked, failures, blocked}),
+    do: {[envelope.id | acked], failures, blocked}
+
+  defp sort(:skipped, _envelope, acc), do: acc
+
+  defp sort({:error, reason}, envelope, {acked, failures, blocked} = acc) do
+    if grouped?(envelope) and MapSet.member?(blocked, envelope.group_key) do
+      acc
+    else
+      {acked, [{envelope, reason} | failures], block(blocked, envelope)}
+    end
   end
 
   defp outcome(:ok, _envelope), do: :ok
@@ -112,32 +110,44 @@ defmodule Outboxer.Dispatcher do
   defp record_failures(_conf, _outbox, [], _now), do: {0, 0}
 
   defp record_failures(conf, outbox, failures, now) do
+    failures = Enum.map(failures, fn {envelope, reason} -> {envelope, format_error(reason)} end)
+
     {dead, retry} =
-      Enum.split_with(failures, fn {envelope, _reason} -> last_attempt?(outbox, envelope) end)
+      Enum.split_with(failures, fn {envelope, _error} -> last_attempt?(outbox, envelope) end)
 
-    dead
-    |> Enum.group_by(fn {_envelope, reason} -> format_error(reason) end, fn {envelope, _reason} ->
-      envelope
-    end)
-    |> Enum.each(fn {error, envelopes} ->
-      conf.storage.kill(conf, Enum.map(envelopes, & &1.id), error, now)
-      Enum.each(envelopes, &emit(:dead, conf, &1, error))
-    end)
-
-    # One UPDATE per distinct (attempt number, error), not one per row.
-    retry
-    |> Enum.group_by(
-      fn {envelope, reason} -> {envelope.attempts + 1, format_error(reason)} end,
-      fn {envelope, _reason} -> envelope end
-    )
-    |> Enum.each(fn {{attempt, error}, envelopes} ->
-      retry_at = DateTime.add(now, Backoff.delay(outbox.backoff, attempt), :millisecond)
-      conf.storage.fail(conf, Enum.map(envelopes, & &1.id), retry_at, error)
-      Enum.each(envelopes, &emit(:retry, conf, &1, error))
-    end)
-
+    kill(conf, dead, now)
+    schedule_retries(conf, outbox, retry, now)
     {length(dead), length(retry)}
   end
+
+  defp kill(conf, dead, now) do
+    for {error, envelopes} <- Enum.group_by(dead, &elem(&1, 1), &elem(&1, 0)) do
+      conf.storage.kill(conf, ids(envelopes), error, now)
+      for envelope <- envelopes, do: emit(:dead, conf, envelope, error)
+    end
+
+    :ok
+  end
+
+  # One UPDATE per distinct (attempt number, error), not one per row.
+  defp schedule_retries(conf, outbox, retry, now) do
+    groups =
+      Enum.group_by(
+        retry,
+        fn {envelope, error} -> {envelope.attempts + 1, error} end,
+        &elem(&1, 0)
+      )
+
+    for {{attempt, error}, envelopes} <- groups do
+      retry_at = DateTime.add(now, Backoff.delay(outbox.backoff, attempt), :millisecond)
+      conf.storage.fail(conf, ids(envelopes), retry_at, error)
+      for envelope <- envelopes, do: emit(:retry, conf, envelope, error)
+    end
+
+    :ok
+  end
+
+  defp ids(envelopes), do: Enum.map(envelopes, & &1.id)
 
   defp last_attempt?(%Outbox{max_attempts: :infinity}, _envelope), do: false
 

@@ -239,5 +239,7 @@ defmodule Outboxer.Config do
   end
 
   @spec registry(atom()) :: atom()
+  # One atom per configured instance, created at boot: not an atom leak.
+  # credo:disable-for-next-line Credo.Check.Warning.UnsafeToAtom
   def registry(name), do: Module.concat(name, Registry)
 end

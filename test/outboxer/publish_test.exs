@@ -221,5 +221,24 @@ defmodule Outboxer.PublishTest do
       assert %{pending: 0} = Outboxer.counts(:events, name: name)
       assert %{delivered: 0} = drain(:events, name: name)
     end
+
+    test "drain returns instead of looping when a message keeps failing", context do
+      failures = start_failures(fn envelope -> n(envelope) == 1 end)
+
+      name =
+        start_outboxer(context, [events: [fail: failures, backoff: [min: 0, max: 0]]],
+          testing: :manual
+        )
+
+      Outboxer.publish([%Event{n: 1, group: "g"}, %Event{n: 2, group: "h"}],
+        name: name,
+        outbox: :events
+      )
+
+      assert %{delivered: 1, failed: failed, dead: 0} = drain(:events, name: name)
+      assert failed >= 1
+      assert [%{attempts: attempts}] = published(:events, name: name)
+      assert attempts >= 1
+    end
   end
 end

@@ -54,12 +54,9 @@ if Code.ensure_loaded?(Postgrex) do
     # Match against the configured names rather than creating atoms from
     # whatever arrives on the channel.
     defp find_outbox(name, outbox) do
-      name
-      |> Config.fetch!()
-      |> Map.fetch!(:outboxes)
-      |> Map.keys()
-      |> Enum.find(&(Atom.to_string(&1) == outbox))
-      |> case do
+      names = name |> Config.fetch!() |> Map.fetch!(:outboxes) |> Map.keys()
+
+      case Enum.find(names, &(Atom.to_string(&1) == outbox)) do
         nil -> :error
         found -> {:ok, found}
       end
