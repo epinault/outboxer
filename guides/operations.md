@@ -47,8 +47,8 @@ The published numbers come from this setup, with 200-byte payloads:
 | Database | PostgreSQL 17.11 in Docker 27.4 (Linux VM limited to 2 CPUs and 2 GB RAM), default settings |
 | Runtime | Elixir 1.20.4, Erlang/OTP 29 |
 
-The database had far less hardware than the machine, so a production Postgres should do better
-on the publish side.
+Note that the database ran with far less hardware than the machine itself and with untuned
+settings, so treat the figures as a reference point, not a ceiling or a promise.
 
 | What | Result |
 | --- | --- |
